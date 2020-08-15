@@ -17,6 +17,7 @@ C++17 includes the following new language features:
 - [constexpr if](#constexpr-if)
 - [utf-8 character literals](#utf-8-character-literals)
 - [direct-list-initialization of enums](#direct-list-initialization-of-enums)
+- [fallthrough, nodiscard, maybe_unused attributes](#fallthrough-nodiscard-maybe_unused-attributes)
 
 C++17 includes the following new library features:
 - [std::variant](#stdvariant)
@@ -38,18 +39,18 @@ Automatic template argument deduction much like how it's done for functions, but
 template <typename T = float>
 struct MyContainer {
   T val;
-  MyContainer() : val() {}
-  MyContainer(T val) : val(val) {}
+  MyContainer() : val{} {}
+  MyContainer(T val) : val{val} {}
   // ...
 };
-MyContainer c1{ 1 }; // OK MyContainer<int>
+MyContainer c1 {1}; // OK MyContainer<int>
 MyContainer c2; // OK MyContainer<float>
 ```
 
 ### Declaring non-type template parameters with auto
 Following the deduction rules of `auto`, while respecting the non-type template parameter list of allowable types[\*], template arguments can be deduced from the types of its arguments:
 ```c++
-template <auto ... seq>
+template <auto... seq>
 struct my_integer_sequence {
   // Implementation here ...
 };
@@ -64,9 +65,9 @@ auto seq2 = my_integer_sequence<0, 1, 2>();
 ### Folding expressions
 A fold expression performs a fold of a template parameter pack over a binary operator.
 * An expression of the form `(... op e)` or `(e op ...)`, where `op` is a fold-operator and `e` is an unexpanded parameter pack, are called _unary folds_.
-* An expression of the form `(e1 op ... op e2)`, where `op` are fold-operators, is called a _binary fold_. Either `e1` or `e2` are unexpanded parameter packs, but not both.
+* An expression of the form `(e1 op ... op e2)`, where `op` are fold-operators, is called a _binary fold_. Either `e1` or `e2` is an unexpanded parameter pack, but not both.
 ```c++
-template<typename... Args>
+template <typename... Args>
 bool logicalAnd(Args... args) {
     // Binary folding.
     return (true && ... && args);
@@ -76,7 +77,7 @@ bool& b2 = b;
 logicalAnd(b, b2, true); // == true
 ```
 ```c++
-template<typename... Args>
+template <typename... Args>
 auto sum(Args... args) {
     // Unary folding.
     return (... + args);
@@ -85,22 +86,22 @@ sum(1.0, 2.0f, 3); // == 6.0
 ```
 
 ### New rules for auto deduction from braced-init-list
-Changes to `auto` deduction when used with the uniform initialization syntax. Previously, `auto x{ 3 };` deduces a `std::initializer_list<int>`, which now deduces to `int`.
+Changes to `auto` deduction when used with the uniform initialization syntax. Previously, `auto x {3};` deduces a `std::initializer_list<int>`, which now deduces to `int`.
 ```c++
-auto x1{ 1, 2, 3 }; // error: not a single element
-auto x2 = { 1, 2, 3 }; // decltype(x2) is std::initializer_list<int>
-auto x3{ 3 }; // decltype(x3) is int
-auto x4{ 3.0 }; // decltype(x4) is double
+auto x1 {1, 2, 3}; // error: not a single element
+auto x2 = {1, 2, 3}; // x2 is std::initializer_list<int>
+auto x3 {3}; // x3 is int
+auto x4 {3.0}; // x4 is double
 ```
 
 ### constexpr lambda
 Compile-time lambdas using `constexpr`.
 ```c++
-auto identity = [] (int n) constexpr { return n; };
+auto identity = [](int n) constexpr { return n; };
 static_assert(identity(123) == 123);
 ```
 ```c++
-constexpr auto add = [] (int x, int y) {
+constexpr auto add = [](int x, int y) {
   auto L = [=] { return x; };
   auto R = [=] { return y; };
   return [=] { return L() + R(); };
@@ -120,7 +121,7 @@ static_assert(addOne(1) == 2);
 Capturing `this` in a lambda's environment was previously reference-only. An example of where this is problematic is asynchronous code using callbacks that require an object to be available, potentially past its lifetime. `*this` (C++17) will now make a copy of the current object, while `this` (C++11) continues to capture by reference.
 ```c++
 struct MyObj {
-  int value{ 123 };
+  int value {123};
   auto getValueCopy() {
     return [*this] { return value; };
   }
@@ -149,6 +150,16 @@ S x2 = S{123};        // mov eax, dword ptr [.L_ZZ4mainE2x2]
                       // .L_ZZ4mainE2x2: .long 123
 ```
 
+It can also be used to declare and define a static member variable, such that it does not need to be initialized in the source file.
+```c++
+struct S {
+  S() : id{count++} {}
+  ~S() { count--; }
+  int id;
+  static inline int count{0}; // declare and initialize count to 0 within the class
+};
+```
+
 ### Nested namespaces
 Using the namespace resolution operator to create nested namespace definitions.
 ```c++
@@ -159,7 +170,10 @@ namespace A {
     }
   }
 }
-// vs.
+```
+
+The code above can be written like this:
+```c++
 namespace A::B::C {
   int i;
 }
@@ -176,6 +190,18 @@ Coordinate origin() {
 const auto [ x, y ] = origin();
 x; // == 0
 y; // == 0
+```
+```c++
+std::unordered_map<std::string, int> mapping {
+  {"a", 1},
+  {"b", 2},
+  {"c", 3}
+};
+
+// Destructure by reference.
+for (const auto& [key, value] : mapping) {
+  // Do something with key and value
+}
 ```
 
 ### Selection statements with initializer
@@ -221,20 +247,66 @@ struct S {};
 static_assert(isIntegral<S>() == false);
 ```
 
-### UTF-8 Character Literals
+### UTF-8 character literals
 A character literal that begins with `u8` is a character literal of type `char`. The value of a UTF-8 character literal is equal to its ISO 10646 code point value.
 ```c++
 char x = u8'x';
 ```
 
-### Direct List Initialization of Enums
+### Direct list initialization of enums
 Enums can now be initialized using braced syntax.
 ```c++
 enum byte : unsigned char {};
-byte b{0}; // OK
-byte c{-1}; // ERROR
+byte b {0}; // OK
+byte c {-1}; // ERROR
 byte d = byte{1}; // OK
 byte e = byte{256}; // ERROR
+```
+
+### fallthrough, nodiscard, maybe_unused attributes
+C++17 introduces three new attributes: `[[fallthrough]]`, `[[nodiscard]]` and `[[maybe_unused]]`.
+* `[[fallthrough]]` indicates to the compiler that falling through in a switch statement is intended behavior.
+```c++
+switch (n) {
+  case 1: [[fallthrough]]
+    // ...
+  case 2:
+    // ...
+    break;
+}
+```
+
+* `[[nodiscard]]` issues a warning when either a function or class has this attribute and its return value is discarded.
+```c++
+[[nodiscard]] bool do_something() {
+  return is_success; // true for success, false for failure
+}
+
+do_something(); // warning: ignoring return value of 'bool do_something()',
+                // declared with attribute 'nodiscard'
+```
+```c++
+// Only issues a warning when `error_info` is returned by value.
+struct [[nodiscard]] error_info {
+  // ...
+};
+
+error_info do_something() {
+  error_info ei;
+  // ...
+  return ei;
+}
+
+do_something(); // warning: ignoring returned value of type 'error_info',
+                // declared with attribute 'nodiscard'
+```
+
+* `[[maybe_unused]]` indicates to the compiler that a variable or parameter might be unused and is intended.
+```c++
+void my_callback(std::string msg, [[maybe_unused]] bool error) {
+  // Don't care if `msg` is an error message, just log it.
+  log(msg);
+}
 ```
 
 ## C++17 Library Features
@@ -272,7 +344,7 @@ if (auto str = create(true)) {
 ### std::any
 A type-safe container for single values of any type.
 ```c++
-std::any x{ 5 };
+std::any x {5};
 x.has_value() // == true
 std::any_cast<int>(x) // == 5
 std::any_cast<int&>(x) = 10;
@@ -283,16 +355,16 @@ std::any_cast<int>(x) // == 10
 A non-owning reference to a string. Useful for providing an abstraction on top of strings (e.g. for parsing).
 ```c++
 // Regular strings.
-std::string_view cppstr{ "foo" };
+std::string_view cppstr {"foo"};
 // Wide strings.
-std::wstring_view wcstr_v{ L"baz" };
+std::wstring_view wcstr_v {L"baz"};
 // Character arrays.
 char array[3] = {'b', 'a', 'r'};
 std::string_view array_v(array, std::size(array));
 ```
 ```c++
-std::string str{ "   trim me" };
-std::string_view v{ str };
+std::string str {"   trim me"};
+std::string_view v {str};
 v.remove_prefix(std::min(v.find_first_not_of(" "), v.size()));
 str; //  == "   trim me"
 v; // == "trim me"
@@ -303,29 +375,29 @@ Invoke a `Callable` object with parameters. Examples of `Callable` objects are `
 ```c++
 template <typename Callable>
 class Proxy {
-    Callable c;
+  Callable c;
 public:
-    Proxy(Callable c): c(c) {}
-    template <class... Args>
-    decltype(auto) operator()(Args&&... args) {
-        // ...
-        return std::invoke(c, std::forward<Args>(args)...);
-    }
+  Proxy(Callable c): c(c) {}
+  template <class... Args>
+  decltype(auto) operator()(Args&&... args) {
+    // ...
+    return std::invoke(c, std::forward<Args>(args)...);
+  }
 };
-auto add = [] (int x, int y) {
+auto add = [](int x, int y) {
   return x + y;
 };
-Proxy<decltype(add)> p{ add };
+Proxy<decltype(add)> p {add};
 p(1, 2); // == 3
 ```
 
 ### std::apply
 Invoke a `Callable` object with a tuple of arguments.
 ```c++
-auto add = [] (int x, int y) {
+auto add = [](int x, int y) {
   return x + y;
 };
-std::apply(add, std::make_tuple( 1, 2 )); // == 3
+std::apply(add, std::make_tuple(1, 2)); // == 3
 ```
 
 ### std::filesystem
@@ -334,7 +406,7 @@ The new `std::filesystem` library provides a standard way to manipulate files, d
 Here, a big file is copied to a temporary path if there is available space:
 ```c++
 const auto bigFilePath {"bigFileToCopy"};
-if (std::filesystem::exists(bigFilePath)) {   
+if (std::filesystem::exists(bigFilePath)) {
   const auto bigFileSize {std::filesystem::file_size(bigFilePath)};
   std::filesystem::path tmpPath {"/tmp"};
   if (std::filesystem::space(tmpPath).available > bigFileSize) {
@@ -360,8 +432,8 @@ Moving nodes and merging containers without the overhead of expensive copies, mo
 
 Moving elements from one map to another:
 ```c++
-std::map<int, string> src{ { 1, "one" }, { 2, "two" }, { 3, "buckle my shoe" } };
-std::map<int, string> dst{ { 3, "three" } };
+std::map<int, string> src {{1, "one"}, {2, "two"}, {3, "buckle my shoe"}};
+std::map<int, string> dst {{3, "three"}};
 dst.insert(src.extract(src.find(1))); // Cheap remove and insert of { 1, "one" } from `src` to `dst`.
 dst.insert(src.extract(2)); // Cheap remove and insert of { 2, "two" } from `src` to `dst`.
 // dst == { { 1, "one" }, { 2, "two" }, { 3, "three" } };
@@ -369,8 +441,8 @@ dst.insert(src.extract(2)); // Cheap remove and insert of { 2, "two" } from `src
 
 Inserting an entire set:
 ```c++
-std::set<int> src{1, 3, 5};
-std::set<int> dst{2, 4, 5};
+std::set<int> src {1, 3, 5};
+std::set<int> dst {2, 4, 5};
 dst.merge(src);
 // src == { 5 }
 // dst == { 1, 2, 3, 4, 5 }
@@ -388,7 +460,7 @@ s2.insert(elementFactory());
 
 Changing the key of a map element:
 ```c++
-std::map<int, string> m{ { 1, "one" }, { 2, "two" }, { 3, "three" } };
+std::map<int, string> m {{1, "one"}, {2, "two"}, {3, "three"}};
 auto e = m.extract(2);
 e.key() = 4;
 m.insert(std::move(e));
